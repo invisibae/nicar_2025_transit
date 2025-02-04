@@ -1,0 +1,8 @@
+*.vim
+.DS_Store
+packrat/lib*/
+packrat/src/
+.Rproj.user
+.RData
+.Rhistory
+!functions

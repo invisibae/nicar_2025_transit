@@ -1,0 +1,272 @@
+---
+title: "Using open-source tools to investigate public transit"
+author: "Greg Morton"
+editor: visual
+---
+
+## Using open-source tools to investigate public transit
+
+We're going to use the `r5r` package to investigate public transit in Baltimore.
+
+```{r}
+# Load the tidyverse
+library(tidyverse)
+# r5r will be our routing engine
+library(r5r)
+# Load the sf package for spatial data
+library(sf)
+# Load mapview for interactive maps we can use in the notebook
+library(mapview)
+# We're going to need rjava to run r5r
+library(rJava)
+# We'll use janitor for some minimal data cleaning
+library(janitor)
+# readxl for reading in excel files
+library(readxl)
+```
+
+### Step 0: Preparing our data
+
+Getting started with `r5r` requires that we be intentional about our setup. To ensure that we get accurate results, we need to make sure the data that will serve as our inputs is accurate and up-to-date.
+
+#### What kind of data do we need?:
+
+-   **OpenStreetMaps Network**
+
+    -   Contains raw geographic and transportation-related data from OpenStreetMap, such as roads, pathways, intersections, and their associated metadata.
+
+    -   `r5r` needs a street network to build a multimodal transit network for modeling transit, biking, and walking routes
+
+```{r}
+# Usually we would use the `osmdata` package to download OpenStreetMap data, but we've already downloaded the data for you
+# You can also find osm.pbf files at https://download.geofabrik.de/ (for example: https://download.geofabrik.de/north-america/us/maryland.html)
+# For small or mid-sized cities, it may become necessary to crop the data to a smaller area to avoid memory issues 
+# To crop, we'd use osmosis or osmconvert, but we've already done this for you
+
+osm_path <- "data/poa/2024-08-26/baltimore.osm.pbf"
+```
+
+-   **GTFS.zip**
+
+    -   Next, we need schedule data from one or more public transit feeds. The more feeds we have, the more modes of transit accessible to our hypothetical travelers.
+
+    -   GTFS is available through most public transit agencies (for example [NYC](https://mta.info/developers), [Chicago](https://www.transitchicago.com/developers/gtfs/) and [LA](https://developer.metro.net/gtfs-schedule-data/))
+
+    -   For this session, we've supplied Baltimore GTFS feeds for August 26, 2024 – The first day of school.
+
+```{r}
+gtfs_paths <- c("data/poa/2024-08-26/light_rail_gtfs.zip", "data/poa/metro_gtfs.zip", "data/poa/local-bus_gtfs.zip")
+```
+
+-   **elevation.tif**
+
+    -   Next, we need schedule data from one or more public transit feeds. The more feeds we have, the more modes of transit accessible to our hypothetical travelers.
+
+    -   GTFS is available through most public transit agencies (for example [NYC](https://mta.info/developers), [Chicago](https://www.transitchicago.com/developers/gtfs/) and [LA](https://developer.metro.net/gtfs-schedule-data/))
+
+    -   For this session, we've supplied Baltimore GTFS feeds for August 26, 2024 – The first day of school.
+
+```{r}
+elevation_path <- "data/poa/2024-08-26/elevation.tif"
+```
+
+### Step 1: Build our network
+
+What's happening here?
+
+Since r5r is java-based, we need to use the `rJava` package to set the `JAVA_HOME` environment variable to the location of our Java installation. This is necessary to ensure that r5r can access the Java Virtual Machine (JVM) it needs to run.
+
+```{r}
+Sys.setenv(JAVA_HOME = "/Library/Java/JavaVirtualMachines/openjdk-21.jdk/Contents/Home")
+Sys.getenv("JAVA_HOME")
+```
+
+Next, we'll initialize the JVM and allocate enough memory for r5r to run. We'll also check the version of Java we're using.
+
+**It is important to remember that `r5r` REQUIRES JDK 21, which won't be the default option on most computers**
+
+The amount of memory you allocate to r5r will depend on the size of the network you're working with. For small to mid-sized cities, 8GB should be sufficient. For larger cities or more difficult routing tasks, you may need to allocate more memory.
+
+```{r}
+# start rjava and allocate enough memory for r5r
+rJava::.jinit()
+options(java.parameters = "-Xmx8g")
+rJava::.jcall("java.lang.System", "S", "getProperty", "java.version")
+# un-comment for session details 
+r5r::r5r_sitrep()
+```
+
+Now that we've set up our environment, we can build our network.
+
+the `setup_r5` function will take the OpenStreetMap data, GTFS feeds, and elevation data we've provided and build a multimodal transit network for Baltimore.
+
+It'll take a few minutes to build a network, so let's take a break and come back when it's done.
+
+Don't worry too much about the warnings you see here. Most happen as a result of the way I've cropped the OSM data to make it easier to work with.
+```{r}
+# setup r5r
+r5r_core <- setup_r5(here::here(paste0("data/poa/2025-01-17")),
+                     temp_dir = F,
+                     verbose = F,
+                     overwrite = F
+                     )
+
+# make sure it worked
+r5r_core
+```
+
+## What does our transit network look like?
+```{r}
+
+transit_net <- r5r::transit_network_to_sf(r5r_core)
+
+transit_net$routes %>% 
+  mapview(zcol = "mode")
+
+```
+
+## Your first route
+
+Today we'll be focusing on routes to Western High, the oldest public all-girls school in the United States and one of Baltimore's selective, college-preparatory high schools.
+
+We obtained, through a public records request, home census tracts for students who attend Western High. We'll use this data to model routes to school for a few students.
+
+
+```{r}
+# All origin and destination pairs for Western HS
+western_departure_tiems <- 
+  read_rds("data/poa/2025-01-17/travel_times_western_01_17.rds") %>% 
+  select(
+    census_tract,
+    to_id,
+    name,
+    program,
+    departure_time,
+    am_bell,
+    school_polygon,
+    school_point_lat,
+    school_point_lon,
+    geometry.y,
+    tract_point_lat,
+    tract_point_lon
+  )
+```
+
+### Brooke Bourne
+We're going to test our transit network by modeling one of our characters' routes to school.
+
+Brooke Bourne told us it took her nearly an hour to get to school every day. We're going to use our transit network to find her quickest route to school on public transit
+
+To find Brooke's route, we'll need to filter our data to find her home census tract and then use the `detailed_itineraries` function to find her route to school.
+```{r}
+brooke_bourne <- 
+  western_departure_tiems %>%
+  filter(census_tract == "24510080800")
+
+```
+
+We'll begin by defining the modes of transit that we'll give our commuters access to. We'll use "WALK" and "TRANSIT" for now, but we could also include "CAR" or "BIKE" if we wanted to.
+```{r}
+# Define modes of transit that we'll give our commuters access to 
+mode <- c("WALK", "TRANSIT") 
+```
+Unfortunately, r5 is picky about the format of the data we give it. We need to make sure that our data is in the right format before we can use it to find routes.
+
+We have to do some data cleaning to get our data in the right format. We'll pivot our data so that the home and school lat-lon pairs are on different rows. We'll also create an id column to identify the routes in the output. Why on different rows? because r5 requires that origin/destination pairs have different unique IDs, latitudes, and longitudes.
+```{r}
+one_row_test <-
+  brooke_bourne %>% 
+  # r5 needs to take origins and destinations as strings rather than sf 'geometry' objects
+    mutate(school_lat_lon = paste0(school_point_lat, ",", school_point_lon),
+           home_tract_lat_lon = paste0(tract_point_lat, ",", tract_point_lon)) %>%
+  # To make things easier on ourselves, we'll pivot the data so home lat-lon and school lat-lon are on different rows 
+  pivot_longer(
+    cols = c("home_tract_lat_lon", "school_lat_lon"),
+    names_to = "coord_type",
+    values_to = "coord") %>% 
+  # This id column will be used to identify the routes in the output
+  mutate(id = ifelse(
+    coord_type == "home_tract_lat_lon", 
+    janitor::make_clean_names(census_tract), 
+    str_replace_all(stringr::str_to_lower(program), " ", "_"))
+    ) %>% 
+  # Next we'll separate the lat and lon columns 
+  mutate(lat = map_dbl(.$coord, ~as.double(str_split(., ",")[[1]][1])),
+         lon = map_dbl(.$coord, ~as.double(str_split(., ",")[[1]][2]))) %>%
+  dplyr::select(
+                program,
+                departure_time,
+                name,
+                census_tract,
+                coord_type,
+                id,
+                lat,
+                lon,
+                am_bell
+  )
+```
+
+Now that we have our data in the right format, we can use the `detailed_itineraries` function to find Brooke's route to school. 
+
+By default, `detailed_itineraries` will return the fastest route to school. We can also specify that we want the shortest route by setting `shortest_path = T`.
+
+Below we'll compare Brooke's shortest route on public transit to her shortest route by car.
+```{r}
+# What is Brooke's shortest route on public transit?
+public_transit <- 
+  detailed_itineraries(
+    r5r_core,
+    origins = one_row_test[1,],
+    destinations = one_row_test[2,],
+    mode = mode,
+    departure_datetime = one_row_test$departure_time[1],
+    # by default, r5 will give the traveler a 10 minute window to begin their trip. We don't want that here.
+    time_window = 1L
+    )
+
+# What is Brooke's shortest route by car?
+car <- 
+  detailed_itineraries(
+    r5r_core,
+    origins = one_row_test[1,],
+    destinations = one_row_test[2,],
+    mode = "CAR",
+    departure_datetime = one_row_test$departure_time[1]
+    )
+  
+
+mapview(df, zcol = "mode") +
+  mapview(car, zcol = "mode")+
+  mapview(western_departure_tiems$school_polygon[1]) +
+  mapview(brooke_bourne$geometry.y)
+  
+
+```
+
+
+But that's not it! While `detailed_iteneraries` suggests the fastest route by default, it is also quite flexible!
+
+We can specify a time window for our route, which will return all routes that are within the specified time window of the fastest route. This is useful for finding alternative routes that may be more convenient or scenic. While it's logical for travelers to choose the fastest route, they may also want to consider other factors like the number of transfers, the amount of walking involved or the reliability of the route.
+
+Let's see what Brooke's options look like if she's willing to spend an extra 25 minutes on her commute.
+```{r}
+public_transit_options  <- 
+  detailed_itineraries(
+    r5r_core,
+    origins = one_row_test[1,],
+    destinations = one_row_test[2,],
+    mode = mode,
+    departure_datetime = one_row_test$departure_time[1],
+    shortest_path = F,
+    time_window = 25L
+    )
+```
+
+
+
+
+
+```{r}
+# stop r5
+r5r::stop_r5(r5r_core)
+```
