@@ -4,7 +4,7 @@ author: "Greg Morton"
 editor: visual
 ---
 
-## Using open-source tools to investigate public transit
+# Using open-source tools to investigate public transit
 
 We're going to use the `r5r` package to investigate public transit in Baltimore.
 
@@ -23,15 +23,36 @@ library(rJava)
 library(janitor)
 # readxl for reading in excel files
 library(readxl)
+# for color scales
+library(viridisLite)
+# for spatial interpolation 
+library(interp)
+# for writing stars objects
+library(stars)
+
+# load shapes 
+bmore_tracts <- 
+  read_rds("data/shapes/bmore_tracts.rds")
+
+
+# Dissolve tract boundaries to create a single Baltimore City boundary
+baltimore_boundary <- 
+  bmore_tracts %>%
+  st_union() %>%          # Union all tracts into one multipolygon
+  st_as_sf() %>%          # Convert back to an sf object
+  st_cast("POLYGON") %>%       # Ensure it’s a polygon %>% 
+  st_make_valid()
+
+
 ```
 
-### Step 0: Preparing our data
+### Part 0: Preparing our data and dependencies
 
 Getting started with `r5r` requires that we be intentional about our setup. To ensure that we get accurate results, we need to make sure the data that will serve as our inputs is accurate and up-to-date.
 
 #### What kind of data do we need?:
 
--   **OpenStreetMaps Network**
+-   **OpenStreetMap Network**
 
     -   Contains raw geographic and transportation-related data from OpenStreetMap, such as roads, pathways, intersections, and their associated metadata.
 
@@ -43,7 +64,7 @@ Getting started with `r5r` requires that we be intentional about our setup. To e
 # For small or mid-sized cities, it may become necessary to crop the data to a smaller area to avoid memory issues 
 # To crop, we'd use osmosis or osmconvert, but we've already done this for you
 
-osm_path <- "data/poa/2024-08-26/baltimore.osm.pbf"
+osm_path <- "data/poa/2025-01-17/baltimore.osm.pbf"
 ```
 
 -   **GTFS.zip**
@@ -55,7 +76,7 @@ osm_path <- "data/poa/2024-08-26/baltimore.osm.pbf"
     -   For this session, we've supplied Baltimore GTFS feeds for August 26, 2024 – The first day of school.
 
 ```{r}
-gtfs_paths <- c("data/poa/2024-08-26/light_rail_gtfs.zip", "data/poa/metro_gtfs.zip", "data/poa/local-bus_gtfs.zip")
+gtfs_paths <- c("data/poa/2024-01-17/light_rail_gtfs.zip", "data/poa/2024-01-17/metro_gtfs.zip", "data/poa/local-bus_gtfs.zip")
 ```
 
 -   **elevation.tif**
@@ -70,7 +91,7 @@ gtfs_paths <- c("data/poa/2024-08-26/light_rail_gtfs.zip", "data/poa/metro_gtfs.
 elevation_path <- "data/poa/2024-08-26/elevation.tif"
 ```
 
-### Step 1: Build our network
+### Build our network
 
 What's happening here?
 
@@ -85,15 +106,15 @@ Next, we'll initialize the JVM and allocate enough memory for r5r to run. We'll 
 
 **It is important to remember that `r5r` REQUIRES JDK 21, which won't be the default option on most computers**
 
-The amount of memory you allocate to r5r will depend on the size of the network you're working with. For small to mid-sized cities, 8GB should be sufficient. For larger cities or more difficult routing tasks, you may need to allocate more memory.
+The amount of memory you allocate to r5r will depend on the size and complexity of the network you're working with. For us, 8GB should be enough. For larger cities or more difficult routing tasks, you may need to allocate more memory.
 
 ```{r}
 # start rjava and allocate enough memory for r5r
 rJava::.jinit()
-options(java.parameters = "-Xmx8g")
+options(java.parameters = "-Xm8g")
 rJava::.jcall("java.lang.System", "S", "getProperty", "java.version")
 # un-comment for session details 
-r5r::r5r_sitrep()
+# r5r::r5r_sitrep()
 ```
 
 Now that we've set up our environment, we can build our network.
@@ -103,6 +124,7 @@ the `setup_r5` function will take the OpenStreetMap data, GTFS feeds, and elevat
 It'll take a few minutes to build a network, so let's take a break and come back when it's done.
 
 Don't worry too much about the warnings you see here. Most happen as a result of the way I've cropped the OSM data to make it easier to work with.
+
 ```{r}
 # setup r5r
 r5r_core <- setup_r5(here::here(paste0("data/poa/2025-01-17")),
@@ -116,6 +138,7 @@ r5r_core
 ```
 
 ## What does our transit network look like?
+
 ```{r}
 
 transit_net <- r5r::transit_network_to_sf(r5r_core)
@@ -130,7 +153,6 @@ transit_net$routes %>%
 Today we'll be focusing on routes to Western High, the oldest public all-girls school in the United States and one of Baltimore's selective, college-preparatory high schools.
 
 We obtained, through a public records request, home census tracts for students who attend Western High. We'll use this data to model routes to school for a few students.
-
 
 ```{r}
 # All origin and destination pairs for Western HS
@@ -153,26 +175,30 @@ western_departure_tiems <-
 ```
 
 ### Brooke Bourne
+
 We're going to test our transit network by modeling one of our characters' routes to school.
 
 Brooke Bourne told us it took her nearly an hour to get to school every day. We're going to use our transit network to find her quickest route to school on public transit
 
 To find Brooke's route, we'll need to filter our data to find her home census tract and then use the `detailed_itineraries` function to find her route to school.
+
 ```{r}
 brooke_bourne <- 
   western_departure_tiems %>%
   filter(census_tract == "24510080800")
-
 ```
 
 We'll begin by defining the modes of transit that we'll give our commuters access to. We'll use "WALK" and "TRANSIT" for now, but we could also include "CAR" or "BIKE" if we wanted to.
+
 ```{r}
 # Define modes of transit that we'll give our commuters access to 
 mode <- c("WALK", "TRANSIT") 
 ```
+
 Unfortunately, r5 is picky about the format of the data we give it. We need to make sure that our data is in the right format before we can use it to find routes.
 
 We have to do some data cleaning to get our data in the right format. We'll pivot our data so that the home and school lat-lon pairs are on different rows. We'll also create an id column to identify the routes in the output. Why on different rows? because r5 requires that origin/destination pairs have different unique IDs, latitudes, and longitudes.
+
 ```{r}
 one_row_test <-
   brooke_bourne %>% 
@@ -206,11 +232,12 @@ one_row_test <-
   )
 ```
 
-Now that we have our data in the right format, we can use the `detailed_itineraries` function to find Brooke's route to school. 
+Now that we have our data in the right format, we can use the `detailed_itineraries` function to find Brooke's route to school.
 
 By default, `detailed_itineraries` will return the fastest route to school. We can also specify that we want the shortest route by setting `shortest_path = T`.
 
 Below we'll compare Brooke's shortest route on public transit to her shortest route by car.
+
 ```{r}
 # What is Brooke's shortest route on public transit?
 public_transit <- 
@@ -222,8 +249,9 @@ public_transit <-
     departure_datetime = one_row_test$departure_time[1],
     # by default, r5 will give the traveler a 10 minute window to begin their trip. We don't want that here.
     time_window = 1L
-    )
-
+    ) %>% 
+  st_as_sf() 
+ 
 # What is Brooke's shortest route by car?
 car <- 
   detailed_itineraries(
@@ -232,23 +260,33 @@ car <-
     destinations = one_row_test[2,],
     mode = "CAR",
     departure_datetime = one_row_test$departure_time[1]
-    )
-  
+    )%>% 
+  st_as_sf() 
+```
 
-mapview(df, zcol = "mode") +
+How is routing data structured?
+
+```{r}
+public_transit %>% 
+  kableExtra::kbl() %>% 
+  kableExtra::kable_material_dark()
+```
+
+What does it look like on a map?
+
+```{r}
+mapview(public_transit, zcol = "mode") +
   mapview(car, zcol = "mode")+
   mapview(western_departure_tiems$school_polygon[1]) +
   mapview(brooke_bourne$geometry.y)
-  
-
 ```
-
 
 But that's not it! While `detailed_iteneraries` suggests the fastest route by default, it is also quite flexible!
 
 We can specify a time window for our route, which will return all routes that are within the specified time window of the fastest route. This is useful for finding alternative routes that may be more convenient or scenic. While it's logical for travelers to choose the fastest route, they may also want to consider other factors like the number of transfers, the amount of walking involved or the reliability of the route.
 
-Let's see what Brooke's options look like if she's willing to spend an extra 25 minutes on her commute.
+Let's see what Brooke's options look like if she's willing to spend an extra 20 minutes on her commute.
+
 ```{r}
 public_transit_options  <- 
   detailed_itineraries(
@@ -258,8 +296,181 @@ public_transit_options  <-
     mode = mode,
     departure_datetime = one_row_test$departure_time[1],
     shortest_path = F,
-    time_window = 25L
+    time_window = 20L
     )
+
+public_transit_options %>% 
+  kableExtra::kbl() %>% 
+  kableExtra::kable_material_dark()
+  
+```
+
+Let's check out her options
+
+```{r}
+mapview(public_transit_options, zcol = "option") + 
+  mapview(western_departure_tiems$school_polygon[1]) +
+  mapview(brooke_bourne$geometry.y)
+```
+
+## Accessibility
+
+We use r5r's accessibility features to quanitfy access to opportunity
+
+```{r}
+# Load school shapes and filter for selective schools 
+selective_school_parcels <- 
+  st_read("data/shapes/school_parcels.geojson") %>% 
+  filter(
+    str_detect(str_to_lower(schools_at_parcel), "poly|western|dunbar|bard|city college|baltimore school for the")
+  ) %>% 
+  distinct(school_number, .keep_all = T) %>% 
+  mutate(
+    point = st_centroid(geometry),
+    lon = map_dbl(point, ~st_coordinates(.)[1]),
+    lat = map_dbl(point, ~st_coordinates(.)[2]),
+    id = schools_at_parcel,
+    schools = 1
+    ) %>%
+  st_set_geometry("point") 
+
+```
+
+
+We'll measure accessibility from a point sampled from within every census tract.
+
+*BE CAREFUL WHEN YOU'RE SELECTING STARTING POINTS*
+
+To ensure realism, you'll want to take steps to ensure you're not starting trips from random locations. Our starting points are a random sample from the EU Global Human Settlement raster, above a minimum estimated density and excluding parks, schools, and waterfront industrial areas. 
+```{r}
+# load sample points for each census tract
+bmore_tracts_sampled <- st_read("data/shapes/bmore_grid_sampled_01_27.geojson") %>% 
+    mutate(
+    lon = map_dbl(geometry, ~st_coordinates(.)[1]),
+    lat = map_dbl(geometry, ~st_coordinates(.)[2]),
+    ) %>% 
+  mutate(id = GEOID) %>% 
+  st_set_geometry("geometry")
+  
+
+bmore_tracts_sampled %>% 
+  mapview(col.region = "red") +
+  mapview(bmore_tracts) 
+```
+
+Just like with `detailed_iteneraries` we'll use our arguments in r5r's `accessibility` function to define the constraints that we'll impose on the commutes we're modeling.
+
+Once again, we'll give our riders access to only public walking and public transit. But this time, we'll only allow for commutes 30 minutes or less.
+
+The function will return the number of schools accessible within 30 minutes.
+
+```{r}
+# routing inputs
+mode <- c("WALK", "TRANSIT")
+max_walk_time <- 30      # in minutes
+time_window <- 15      # in minutes
+travel_time_cutoff <- 30 # in minutes
+departure_datetime <- as.POSIXct("17-01-2025 6:30:00",
+                                 format = "%d-%m-%Y %H:%M:%S")
+
+
+access <- r5r::accessibility(r5r_core,
+                        origins = bmore_tracts_sampled,
+                        destinations = selective_school_parcels,
+                        mode = mode,
+                        opportunities_colnames = c("schools"),
+                        decay_function = "step",
+                        cutoffs = travel_time_cutoff,
+                        departure_datetime = departure_datetime,
+                        max_walk_time = max_walk_time,
+                        time_window = time_window,
+                        progress = FALSE)
+
+access %>% 
+  head(5)
+```
+
+We can visualize our results to get a look at which parts of the city have the best access to selective schools 
+```{r}
+sample_map  <- bmore_tracts_sampled %>% 
+  left_join(access) %>% 
+  mapview(zcol = "accessibility", 
+          col.regions = viridisLite::cividis(2),
+          at = seq(0, 2, by = .5)  # Custom breaks from 0 to 2
+  )
+
+
+sample_map +
+  mapview(selective_school_parcels, col.regions = "red") 
+```
+
+We'll begin making our heatmap by applying some spatial interpolation with the `interp` package.
+```{r}
+# spatial interpolation 
+access_schools <- access %>% 
+  filter(opportunity == "schools") %>%
+  inner_join(bmore_tracts_sampled, by='id') %>%
+  with(interp::interp(lon, lat, accessibility, duplicate = "mean")) %>% 
+  with(cbind(acc=as.vector(z),  # Column-major order
+             x=rep(x, times=length(y)),
+             y=rep(y, each=length(x)))) %>% as.data.frame() %>% na.omit() %>% 
+  mutate(opportunity = "schools")
+
+# get bounding box
+bb_x <- c(min(access_schools$x), max(access_schools$x))
+bb_y <- c(min(access_schools$y), max(access_schools$y))
+bb <- st_bbox(c(xmin = bb_x[1], ymin = bb_y[1], xmax = bb_x[2], ymax = bb_y[2]), crs = 4326)
+
+```
+
+Next, we'll transform our interpolated data into a `stars` object that we'll use as the heatmap layer on our map
+```{r}
+# Convert your contour data into a stars object
+# Convert to stars and set CRS (assuming EPSG:4326)
+contour_stars <- na.omit(access_schools) %>%
+  select(x, y, acc) %>%
+  st_as_stars(dims = c("x", "y"), values = "acc") %>%
+  st_set_crs(4326)  
+
+
+# Create a mapview layer for the contour with a viridis palette
+contour_layer <- mapview(contour_stars, col.regions = viridis::viridis(20, option = "B", direction = -1), 
+                        alpha.regions = 0.7, legend = TRUE, at = seq(min(access_schools$acc, na.rm = TRUE), 
+                                                                      max(access_schools$acc, na.rm = TRUE), length.out = 20))
+
+
+
+# Add the street network as a second mapview layer
+
+# Combine the layers
+contour_layer 
+```
+
+Finally, we'll crop it to make it look a bit cleaner
+```{r}
+contour_stars <- st_transform(contour_stars, st_crs(baltimore_boundary)) %>% st_as_sf()
+
+contour_cropped <- st_crop(contour_stars, st_bbox(baltimore_boundary))
+contour_clipped <- st_intersection(contour_cropped, baltimore_boundary) 
+
+# Visualize the result
+mapview(contour_clipped, alpha.regions = 0.75) +
+mapview(baltimore_boundary, alpha.regions = .5, col.regions = "white") 
+
+
+```
+You can use `ggplot`, `geom_sf` and `ggsave` to create SVG versions of heatmap objects that you can export for graphics.
+```{r}
+ggplot() +
+  geom_sf(data = baltimore_boundary, fill = NA, color = "black") +
+  geom_sf(data = contour_clipped, aes(fill = acc), alpha = 1) + 
+  scale_fill_gradientn(
+  colors = c("#001F4D","#6694BA","#99B7D1", "#CCDBE8","#FFE698","#FFD772", "#F9AC00"),  # Custom gradient
+  name = "Accessibility" ) +
+  coord_sf() +
+  theme_void()
+
+
 ```
 
 

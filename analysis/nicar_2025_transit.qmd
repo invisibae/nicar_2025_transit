@@ -1,7 +1,0 @@
----
-title: "nicar 2025 transit"
-format: html
-editor: visual
----
-
-# Setup
