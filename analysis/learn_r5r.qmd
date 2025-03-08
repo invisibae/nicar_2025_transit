@@ -99,7 +99,7 @@ What's happening here?
 Since r5r is java-based, we need to use the `rJava` package to set the `JAVA_HOME` environment variable to the location of our Java installation. This is necessary to ensure that r5r can access the Java Virtual Machine (JVM) it needs to run.
 
 ```{r}
-Sys.setenv(JAVA_HOME = "/Library/Java/JavaVirtualMachines/openjdk-21.jdk/Contents/Home")
+# Sys.setenv(JAVA_HOME = "/Library/Java/JavaVirtualMachines/openjdk-21.jdk/Contents/Home")
 Sys.getenv("JAVA_HOME")
 ```
 
@@ -112,7 +112,7 @@ The amount of memory you allocate to r5r will depend on the size and complexity 
 ```{r}
 # start rjava and allocate enough memory for r5r
 rJava::.jinit()
-options(java.parameters = "-Xm8g")
+options(java.parameters = "-Xm10g")
 rJava::.jcall("java.lang.System", "S", "getProperty", "java.version")
 # un-comment for session details 
 # r5r::r5r_sitrep()
@@ -131,7 +131,7 @@ Don't worry too much about the warnings you see here. Most happen as a result of
 r5r_core <- setup_r5(here::here(paste0("data/poa/2025-01-17")),
                      temp_dir = F,
                      verbose = F,
-                     overwrite = F
+                     overwrite = T
                      )
 
 # make sure it worked
