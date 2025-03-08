@@ -2,29 +2,36 @@
 
 # Get the exact path to JDK 21 from Homebrew
 JDK21_PATH=$(brew --prefix openjdk@21)
+echo "JDK 21 is installed at: $JDK21_PATH"
 
-# Content to add to .zshrc - Force use of specific path
-config="
-# Set Java 21 as default for R
-export JAVA_HOME=\"$JDK21_PATH\"
-export PATH=\"\$JAVA_HOME/bin:\$PATH\"
-alias java=\"\$JAVA_HOME/bin/java\"
-alias javac=\"\$JAVA_HOME/bin/javac\"
-"
-
-# Ensure we're starting fresh - remove previous JAVA_HOME settings
+# Update .zshrc
+echo "Updating .zshrc..."
+# Remove previous Java settings
 sed -i '.bak' '/JAVA_HOME/d' ~/.zshrc
 sed -i '.bak' '/# Set Java 21/d' ~/.zshrc
 
-# Append to .zshrc
-echo "$config" >> ~/.zshrc
+# Add new Java settings
+echo "
+# Set Java 21 as default for R
+export JAVA_HOME=\"$JDK21_PATH/libexec/openjdk.jdk/Contents/Home\"
+export PATH=\"\$JAVA_HOME/bin:\$PATH\"
+" >> ~/.zshrc
 
-# Create R environment settings
+# Set up R Java configuration
+echo "Setting up R Java configuration..."
 mkdir -p ~/.R
-echo "JAVA_HOME=\"$JDK21_PATH\"" > ~/.Renviron
-echo "JAVA_HOME=\"$JDK21_PATH\"" > ~/.R/Makevars
 
-# Print status
-echo "Added Java 21 config to .zshrc"
-echo "Created R environment files"
-echo "Please restart your terminal or run: source ~/.zshrc"
+# Create R Makevars file
+echo "# R Makevars for Java configuration
+JAVA_HOME=$JDK21_PATH/libexec/openjdk.jdk/Contents/Home
+" > ~/.R/Makevars
+
+# Create .Renviron file
+echo "JAVA_HOME=$JDK21_PATH/libexec/openjdk.jdk/Contents/Home" > ~/.Renviron
+
+# Create symbolic links that R might look for
+sudo ln -sf "$JDK21_PATH/libexec/openjdk.jdk/Contents/Home" /Library/Java/JavaVirtualMachines/openjdk-21.jdk
+sudo R CMD javareconf JAVA_HOME=$JDK21_PATH/libexec/openjdk.jdk/Contents/Home
+
+echo "Setup complete. Please restart your terminal, then reinstall rJava with:"
+echo "R CMD INSTALL --configure-args='-with-java-home=$JDK21_PATH/libexec/openjdk.jdk/Contents/Home' rJava"
