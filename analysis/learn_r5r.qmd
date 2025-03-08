@@ -292,7 +292,7 @@ But that's not it! While `detailed_iteneraries` suggests the fastest route by de
 
 We can specify a time window for our route, which will return all routes that are within the specified time window of the fastest route. This is useful for finding alternative routes that may be more convenient or scenic. While it's logical for travelers to choose the fastest route, they may also want to consider other factors like the number of transfers, the amount of walking involved or the reliability of the route.
 
-Let's see what Brooke's options look like if she's willing to spend an extra 20 minutes on her commute.
+Let's see what Brooke's options look like if she's willing to spend an extra 10 minutes on her commute.
 
 ```{r}
 public_transit_options  <- 

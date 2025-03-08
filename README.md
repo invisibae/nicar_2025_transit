@@ -37,7 +37,8 @@ Nice job! Now that you have that, we're going to quickly run a `.sh` script to e
 
 ```
 
-bash setup_java.sh
+chmod +x fix_r_java.sh
+sudo ./fix_r_java.sh
 
 ```
 
