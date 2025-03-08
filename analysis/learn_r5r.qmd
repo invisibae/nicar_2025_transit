@@ -74,19 +74,13 @@ osm_path <- "data/poa/2025-01-17/baltimore.osm.pbf"
 
     -   GTFS is available through most public transit agencies (for example [NYC](https://mta.info/developers), [Chicago](https://www.transitchicago.com/developers/gtfs/) and [LA](https://developer.metro.net/gtfs-schedule-data/))
 
-    -   For this session, we've supplied Baltimore GTFS feeds for August 26, 2024 – The first day of school.
+    -   For this session, we've supplied Baltimore GTFS feeds for Jan. 17
 
 ```{r}
 gtfs_paths <- c("data/poa/2024-01-17/light_rail_gtfs.zip", "data/poa/2024-01-17/metro_gtfs.zip", "data/poa/local-bus_gtfs.zip")
 ```
 
 -   **elevation.tif**
-
-    -   Next, we need schedule data from one or more public transit feeds. The more feeds we have, the more modes of transit accessible to our hypothetical travelers.
-
-    -   GTFS is available through most public transit agencies (for example [NYC](https://mta.info/developers), [Chicago](https://www.transitchicago.com/developers/gtfs/) and [LA](https://developer.metro.net/gtfs-schedule-data/))
-
-    -   For this session, we've supplied Baltimore GTFS feeds for August 26, 2024 – The first day of school.
 
 ```{r}
 elevation_path <- "data/poa/2024-08-26/elevation.tif"
@@ -105,7 +99,7 @@ Sys.getenv("JAVA_HOME")
 
 Next, we'll initialize the JVM and allocate enough memory for r5r to run. We'll also check the version of Java we're using.
 
-**It is important to remember that `r5r` REQUIRES JDK 21+, which won't be the default option on most computers**
+**It is important to remember that `r5r` REQUIRES JDK 21, which won't be the default option on most computers**
 
 The amount of memory you allocate to r5r will depend on the size and complexity of the network you're working with. For us, 8GB should be enough. For larger cities or more difficult routing tasks, you may need to allocate more memory.
 

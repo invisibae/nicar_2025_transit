@@ -30,7 +30,7 @@ Next, if you're using a computer in the NICAR lab, you're going to have to navig
 
 ```
 
-cd Desktop/hands-on/saturday-using-open-source-tools-to-investigate-public-transit
+cd ~/Desktop/hands_on_classes/20250308-saturday-using-open-source-tools-to-investigate-public-transit
 
 ```
 
