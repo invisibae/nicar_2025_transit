@@ -93,7 +93,11 @@ What's happening here?
 Since r5r is java-based, we need to use the `rJava` package to set the `JAVA_HOME` environment variable to the location of our Java installation. This is necessary to ensure that r5r can access the Java Virtual Machine (JVM) it needs to run.
 
 ```{r}
-# Sys.setenv(JAVA_HOME = "/Library/Java/JavaVirtualMachines/openjdk-21.jdk/Contents/Home")
+# Step 1: Install Java 21 via rJavaEnv
+rJavaEnv::java_quick_install(version = 21)
+
+
+# Verify it's set correctly
 Sys.getenv("JAVA_HOME")
 ```
 
@@ -104,12 +108,16 @@ Next, we'll initialize the JVM and allocate enough memory for r5r to run. We'll 
 The amount of memory you allocate to r5r will depend on the size and complexity of the network you're working with. For us, 8GB should be enough. For larger cities or more difficult routing tasks, you may need to allocate more memory.
 
 ```{r}
+
+Sys.setenv(JAVA_HOME = "/Users/user/Library/Caches/org.R-project.R/R/rJavaEnv/installed/macos/aarch64/21")
+
 # start rjava and allocate enough memory for r5r
+options(java.parameters = "-Xmx10g")  # must be before .jinit()
+
 rJava::.jinit()
-options(java.parameters = "-Xm10g")
+
 rJava::.jcall("java.lang.System", "S", "getProperty", "java.version")
-# un-comment for session details 
-# r5r::r5r_sitrep()
+# Should return "21.x.x"
 ```
 
 Now that we've set up our environment, we can build our network.
@@ -382,7 +390,7 @@ mode <- c("WALK", "TRANSIT")
 max_walk_time <- 30      # in minutes
 time_window <- 15      # in minutes
 travel_time_cutoff <- 30 # in minutes
-departure_datetime <- as.POSIXct("17-01-2025 6:30:00",
+departure_datetime <- as.POSIXct("17-01-2025 6:30:00", 
                                  format = "%d-%m-%Y %H:%M:%S")
 
 
@@ -422,7 +430,7 @@ mapview(bmore_tracts, alpha.regions = 0.1) +
 
 There's a lot of useful information in that map. But we have some more work to do to communicate those ideas visually.
 
-To visualize access we'll use a heatmap.
+To visualize access we'll use a heat map.
 
 We'll by applying some spatial interpolation with the `interp` package. The idea here is to generate accessibility estimates for the space between the points we've chosen to represent each census tract.
 
